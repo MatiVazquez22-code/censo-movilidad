@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Censo de Movilidad Urbana</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        :root { --primary: #1a73e8; --success: #2e7d32; --danger: #d32f2f; --bg: #fdfdfd; --soft-red: #e57373; }
+        html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; background: var(--bg); touch-action: none; }
+        .main-container { display: flex; flex-direction: column; height: 100svh; width: 100vw; box-sizing: border-box; }
+        .status-bar { height: 60px; display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 0 15px; border-bottom: 2px solid #eee; flex-shrink: 0; }
+        #timer { font-size: 1.4rem; font-weight: 800; color: var(--danger); font-family: monospace; }
+        .table-wrapper { flex: 1; background: #fff; overflow: hidden; display: flex; }
+        table { width: 100%; height: 100%; border-collapse: collapse; table-layout: fixed; }
+        th { background: #444; color: white; padding: 2px; font-size: 9px; }
+        .street-title { background: #0d47a1 !important; font-size: 10px; }
+        td { padding: 1px; text-align: center; border: 1px solid #eee; }
+        .val-display { font-weight: 900; font-size: 1.1rem; line-height: 1; }
+        .row-btns { display: flex; gap: 2px; padding: 0 4px; }
+        
+        /* Botones Base */
+        .btn-plus { background: var(--success); color: white; border: none; flex: 2; height: 44px; border-radius: 6px; font-size: 1.6rem; user-select: none; -webkit-tap-highlight-color: transparent; transition: opacity 0.2s; }
+        .btn-minus { background: var(--danger); color: white; border: none; flex: 1; height: 44px; border-radius: 6px; font-size: 1.2rem; user-select: none; -webkit-tap-highlight-color: transparent; transition: opacity 0.2s; }
+        
+        /* FIX: Estilo de deshabilitado visual */
+        .btn-disabled { opacity: 0.3 !important; filter: grayscale(0.8); pointer-events: none; }
+
+        .footer-controls { height: 70px; padding: 10px; background: #fff; border-top: 1px solid #eee; flex-shrink: 0; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+        .btn-reset { width: 100%; height: 100%; background: var(--soft-red); color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 0.8rem; text-transform: uppercase; }
+        .setup-section { padding: 20px; overflow-y: auto; height: 100%; box-sizing: border-box; touch-action: pan-y; }
+        input[type="text"] { width: 100%; padding: 14px; margin-bottom: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
+        .cat-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
+        .cat-option { display: flex; align-items: center; background: #eee; padding: 12px; border-radius: 8px; font-size: 0.75rem; border: 1px solid transparent; }
+        .cat-option.selected { background: #e7f3ff; border: 1px solid var(--primary); }
+        .btn-main { background: var(--primary); color: white; width: 100%; padding: 18px; border: none; border-radius: 10px; font-weight: bold; font-size: 1rem; }
+        #reporte-final { display: none; padding: 20px; overflow-y: auto; height: 100%; touch-action: pan-y; }
+        .resumen-item { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #eee; font-size: 1.1rem; }
+        .export-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+        .btn-exp { padding: 14px; border: none; border-radius: 8px; font-weight: bold; color: white; font-size: 0.8rem; }
+        .bg-xlsx { background: #1d6f42; }
+        .bg-csv { background: #333; }
+        .bg-pdf { background: #b30b00; grid-column: span 2; }
+        @media print {
+            .export-group, .btn-main, .status-bar, .footer-controls, .setup-section, .btn-reset, .btn-plus, .btn-minus { display: none !important; }
+            #reporte-final { display: block !important; height: auto; overflow: visible; padding: 0; }
+            body { background: white; overflow: visible; }
+            .main-container { height: auto; }
+        }
+    </style>
+</head>
+<body>
+<div class="main-container">
+    <div id="setup" class="setup-section">
+        <h3>Configuración de Operativo</h3>
+        <input type="text" id="interseccion" placeholder="Intersección / Punto" onkeydown="handleEnter(event, 'censista')">
+        <input type="text" id="censista" placeholder="Operador" onkeydown="handleEnter(event, 'calle-nombre')">
+        <input type="text" id="calle-nombre" placeholder="Nombre Calle Principal" onkeydown="handleEnter(event, 'calle-movimientos')">
+        <input type="text" id="calle-movimientos" placeholder="Movimientos (ej: Recto, Giro)" onkeydown="handleEnter(event, null)">
+        <p style="font-size: 0.8rem; font-weight: bold; margin-bottom: 8px; margin-top: 10px;">Seleccione Categorías:</p>
+        <div class="cat-selector" id="cat-list"></div>
+        <button class="btn-main" onclick="iniciarCensoNuevo()">INICIAR CENSO</button>
+    </div>
+
+    <div id="censo-activo" style="display:none; flex-direction: column; height: 100%;">
+        <div class="status-bar">
+            <button style="background:none; border:none; font-size:1.4rem;" onclick="location.reload()">⚙️</button>
+            <div style="text-align:center">
+                <span id="info-ciclo" style="font-size: 0.7rem; color:#666">Ciclo 1 / 4</span>
+                <div id="timer">15:00</div>
+            </div>
+            <button id="btn-control-timer" style="border:none; border-radius:20px; padding:8px 15px; font-weight:bold; color:white; font-size:0.7rem; background-color: var(--success);" onclick="gestionarReloj()">Iniciar</button>
+        </div>
+        <div class="table-wrapper"><table id="tabla-conteo"><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+        <div class="footer-controls">
+            <button class="btn-reset" onclick="resetTotalCiclo()">🔄 Reiniciar Ciclo</button>
+        </div>
+    </div>
+
+    <div id="reporte-final">
+        <h2 style="text-align:center; color: var(--success);">REPORTE FINAL</h2>
+        <div id="info-header" style="font-size: 0.9rem; margin-bottom: 15px; padding: 10px; border-left: 5px solid var(--primary); background: #f0f4f8;"></div>
+        <div id="lista-resultados"></div>
+        <div id="total-hora" style="font-size: 1.6rem; font-weight: 900; text-align: center; margin: 20px 0; border-top: 2px solid #eee; padding-top: 10px;"></div>
+        <div class="export-group">
+            <button class="btn-exp bg-xlsx" onclick="descargarData('xlsx')">EXCEL</button>
+            <button class="btn-exp bg-csv" onclick="descargarData('csv')">CSV</button>
+            <button class="btn-exp bg-pdf" onclick="window.print()">GUARDAR PDF</button>
+        </div>
+        <button class="btn-main" style="margin-top:20px; background:#444;" onclick="location.reload()">NUEVA SESIÓN</button>
+    </div>
+</div>
+
+<script>
+    const listaCategoriasBase = ["Automóviles", "Motos", "Bicicletas", "Colectivos", "Camiones", "Vehículos Gran Porte", "Peatones", "Otro"];
+    const TIEMPO_OFICIAL = 15 * 60 * 1000;
+    let categoriasSeleccionadas = [];
+    let appState = { config: {}, dataConteo: {}, totalesAcumulados: {}, historialCompleto: [], cicloActual: 1, pauseTimeLeft: TIEMPO_OFICIAL };
+    let timerInterval = null;
+    let endTime = null;
+
+    window.onload = function() {
+        const catList = document.getElementById('cat-list');
+        listaCategoriasBase.forEach(cat => {
+            catList.innerHTML += `<div class="cat-option" onclick="toggleCat(this, '${cat}')"><input type="checkbox" id="check-${cat}" style="display:none"><span>${cat}</span></div>`;
+        });
+    };
+
+    function handleEnter(event, nextId) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            if (nextId) document.getElementById(nextId).focus();
+            else document.activeElement.blur();
+        }
+    }
+
+    function toggleCat(el, cat) {
+        const cb = el.querySelector('input');
+        cb.checked = !cb.checked;
+        el.classList.toggle('selected');
+        if (navigator.vibrate) navigator.vibrate(10);
+    }
+
+    function iniciarCensoNuevo() {
+        const int = document.getElementById('interseccion').value;
+        const cen = document.getElementById('censista').value;
+        const calle = document.getElementById('calle-nombre').value;
+        const movsRaw = document.getElementById('calle-movimientos').value;
+        categoriasSeleccionadas = listaCategoriasBase.filter(cat => document.getElementById(`check-${cat}`).checked);
+        if(!int || !cen || !calle || !movsRaw || categoriasSeleccionadas.length === 0) return alert("Faltan datos.");
+        appState.config = { interseccion: int, censista: cen, calle: calle, movs: movsRaw.split(',').map(s => s.trim()) };
+        appState.historialCompleto = [];
+        categoriasSeleccionadas.forEach(cat => appState.totalesAcumulados[cat] = 0);
+        resetDatosConteo();
+        document.getElementById('setup').style.display = 'none';
+        document.getElementById('censo-activo').style.display = 'flex';
+        renderTabla();
+        actualizarRelojVisual();
+    }
+
+    function resetDatosConteo() {
+        appState.dataConteo = {};
+        categoriasSeleccionadas.forEach(cat => {
+            appState.dataConteo[cat] = {};
+            appState.config.movs.forEach(m => appState.dataConteo[cat][m] = 0);
+        });
+    }
+
+    function renderTabla() {
+        let headHtml = `<tr><th style="width:50px">TIPO</th><th colspan="${appState.config.movs.length}" class="street-title">${appState.config.calle}</th></tr><tr><th></th>`;
+        appState.config.movs.forEach(m => headHtml += `<th>${m}</th>`);
+        document.getElementById('thead').innerHTML = headHtml;
+        const tbody = document.getElementById('tbody');
+        tbody.innerHTML = '';
+        
+        // El estado visual depende de si el timer está activo
+        const statusClass = timerInterval ? "" : "btn-disabled";
+
+        categoriasSeleccionadas.forEach(cat => {
+            let rowHtml = `<tr><td style="font-size:8px; font-weight:bold; background:#f9f9f9">${cat}</td>`;
+            appState.config.movs.forEach(m => {
+                rowHtml += `<td><div class="count-container"><span class="val-display" id="val-${cat}-${m}">${appState.dataConteo[cat][m]}</span><div class="row-btns">
+                    <button class="btn-minus ${statusClass}" ontouchstart="handleTouch(event, '${cat}', '${m}', -1)">-</button>
+                    <button class="btn-plus ${statusClass}" ontouchstart="handleTouch(event, '${cat}', '${m}', 1)">+</button>
+                </div></div></td>`;
+            });
+            tbody.innerHTML += rowHtml + '</tr>';
+        });
+    }
+
+    function handleTouch(e, cat, mov, val) {
+        e.preventDefault();
+        if(!timerInterval) return; // Si no hay timer, no hace nada
+        if(val === 1) {
+            appState.dataConteo[cat][mov]++;
+            appState.totalesAcumulados[cat]++;
+        } else if(appState.dataConteo[cat][mov] > 0) {
+            appState.dataConteo[cat][mov]--;
+            appState.totalesAcumulados[cat]--;
+        }
+        document.getElementById(`val-${cat}-${mov}`).innerText = appState.dataConteo[cat][mov];
+        if (navigator.vibrate) navigator.vibrate(val === 1 ? 35 : 15);
+    }
+
+    function gestionarReloj() {
+        const btn = document.getElementById('btn-control-timer');
+        if (timerInterval) {
+            clearInterval(timerInterval); timerInterval = null;
+            appState.pauseTimeLeft = endTime - Date.now();
+            btn.innerText = "Reanudar"; btn.style.backgroundColor = "var(--primary)";
+        } else {
+            endTime = Date.now() + appState.pauseTimeLeft;
+            timerInterval = setInterval(updateTimer, 1000);
+            btn.innerText = "Pausar"; btn.style.backgroundColor = "#f57c00";
+        }
+        renderTabla(); // RE-RENDERIZA para aplicar/quitar la opacidad
+    }
+
+    function updateTimer() {
+        let diff = endTime - Date.now();
+        if (diff <= 0) { clearInterval(timerInterval); timerInterval = null; finalizarCicloLocal(); return; }
+        appState.pauseTimeLeft = diff;
+        actualizarRelojVisual();
+    }
+
+    function finalizarCicloLocal() {
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        const cicloFinalizado = appState.cicloActual;
+        categoriasSeleccionadas.forEach(cat => {
+            appState.config.movs.forEach(m => {
+                appState.historialCompleto.push({ ciclo: cicloFinalizado, categoria: cat, movimiento: m, cantidad: appState.dataConteo[cat][m] });
+            });
+        });
+        if (appState.cicloActual < 4) {
+            alert(`Ciclo ${cicloFinalizado} completado.`);
+            appState.cicloActual++; appState.pauseTimeLeft = TIEMPO_OFICIAL;
+            resetDatosConteo();
+            document.getElementById('btn-control-timer').innerText = "Iniciar";
+            document.getElementById('btn-control-timer').style.backgroundColor = "var(--success)";
+            document.getElementById('info-ciclo').innerText = `Ciclo ${appState.cicloActual} / 4`;
+            renderTabla(); 
+            actualizarRelojVisual();
+        } else { mostrarReporteFinal(); }
+    }
+
+    function mostrarReporteFinal() {
+        document.getElementById('censo-activo').style.display = 'none';
+        document.getElementById('info-header').innerHTML = `<strong>UBICACIÓN:</strong> ${appState.config.interseccion}<br><strong>OPERADOR:</strong> ${appState.config.censista}`;
+        const lista = document.getElementById('lista-resultados');
+        lista.innerHTML = "";
+        let granTotal = 0;
+        categoriasSeleccionadas.forEach(cat => granTotal += appState.totalesAcumulados[cat]);
+        categoriasSeleccionadas.forEach(cat => {
+            const porcentaje = granTotal > 0 ? ((appState.totalesAcumulados[cat] / granTotal) * 100).toFixed(1) : 0;
+            lista.innerHTML += `<div class="resumen-item"><span>${cat}</span><span><strong>${appState.totalesAcumulados[cat]}</strong> <span style="color:var(--primary); font-weight:bold;">(${porcentaje}%)</span></span></div>`;
+        });
+        document.getElementById('total-hora').innerText = "TOTAL: " + granTotal;
+        document.getElementById('reporte-final').style.display = 'block';
+    }
+
+    function descargarData(formato) {
+        let rows = [["Ciclo", "Interseccion", "Operador", "Categoria", "Movimiento", "Cantidad"]];
+        appState.historialCompleto.forEach(f => {
+            rows.push([f.ciclo, appState.config.interseccion, appState.config.censista, f.categoria, f.movimiento, f.cantidad]);
+        });
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Resultados");
+        if(formato === 'xlsx') XLSX.writeFile(wb, `Censo_${appState.config.interseccion}.xlsx`);
+        else XLSX.writeFile(wb, `Censo_${appState.config.interseccion}.csv`, { bookType: 'csv' });
+    }
+
+    function actualizarRelojVisual() {
+        let total = Math.ceil(appState.pauseTimeLeft / 1000);
+        let min = Math.floor(total/60);
+        let sec = total%60;
+        document.getElementById('timer').innerText = `${min.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
+    }
+
+    function resetTotalCiclo() {
+        if(confirm("¿Reiniciar tiempo y conteos del ciclo actual?")) {
+            categoriasSeleccionadas.forEach(cat => { appState.config.movs.forEach(m => { appState.totalesAcumulados[cat] -= appState.dataConteo[cat][m]; }); });
+            appState.pauseTimeLeft = TIEMPO_OFICIAL;
+            resetDatosConteo(); renderTabla(); actualizarRelojVisual();
+        }
+    }
+</script>
+</body>
+</html>
