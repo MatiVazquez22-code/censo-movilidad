@@ -5,7 +5,7 @@
 ---
 
 ## 🔗 Demo en vivo / Live Demo
-👉 [https://mativazquez22-code.github.io/censo-movilidad-urbana/](https://mativazquez22-code.github.io/censo-movilidad-urbana/)
+👉 [https://mativazquez22-code.github.io/censo-movilidad/](https://mativazquez22-code.github.io/censo-movilidad/)
 
 ---
 
